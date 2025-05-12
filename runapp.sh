@@ -21,7 +21,7 @@ while true; do
     break
   fi
   
-  .$llama_path \
+  .$LLAMA_PATH \
       -m "$MODEL_PATH" \
       -t "$THREADS" \
       -c "$CTX_SIZE" \

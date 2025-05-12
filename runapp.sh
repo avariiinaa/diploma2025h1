@@ -3,6 +3,7 @@
 CONFIG_FILE="config.yaml"
 
 MODEL_PATH=$(grep 'model_path:' $CONFIG_FILE | awk '{print $2}' | tr -d '"')
+LLAMA_PATH=$(grep 'llama_path:' $CONFIG_FILE | awk '{print $2}')
 THREADS=$(grep 'threads:' $CONFIG_FILE | awk '{print $2}')
 CTX_SIZE=$(grep 'ctx_size:' $CONFIG_FILE | awk '{print $2}')
 PREDICT=$(grep 'predict:' $CONFIG_FILE | awk '{print $2}')
@@ -19,7 +20,7 @@ while true; do
     echo "exit"
     break
   fi
-
+  
   .$llama_path \
       -m "$MODEL_PATH" \
       -t "$THREADS" \

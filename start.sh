@@ -9,4 +9,4 @@ sleep 2
 
 # Запуск основного приложения
 echo "run Qwen..."
-bash run_qwen.sh
+bash runapp.sh

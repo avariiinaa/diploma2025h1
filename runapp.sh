@@ -25,8 +25,10 @@ while true; do
     echo "exit"
     break
   fi
-  
-  RESPONSE=$(.$LLAMA_PATH \
+
+  # Выполняем инференс и сохраняем ответ в переменную RESPONSE
+  RESPONSE=$(
+    .$LLAMA_PATH \
       -m "$MODEL_PATH" \
       -t "$THREADS" \
       -c "$CTX_SIZE" \
@@ -36,16 +38,15 @@ while true; do
       --top_p "$TOP_P" \
       --min_p "$MIN_P" \
       --repeat_penalty "$PENALTY" \
-      -p "$PROMPT./no_think" 2>&1 | tee /dev/tty)
-  echo $RESPONSE
-  ESCAPED_RESPONSE=$(echo "$RESPONSE" | \
-  sed -e 's/"/\\"/g' \
-      -e 's/\\/\\\\/g' \
-      -e 's/\n/\\n/g' \
-      -e 's/\r/\\r/g' \
-      -e 's/\t/\\t/g')
-  # Формируем JSON-запись и пишем в лог
-  JSON_ENTRY="{\"prompt\":\"$PROMPT\",\"response\":\"$ESCAPED_RESPONSE\"}"
-  echo "$JSON_ENTRY" >> "logs/qwen_log.jsonl"
+      -p "$PROMPT./no_think" \
+    | tail -n +2  # убираем echo prompt'а, если llama.cpp его дублирует
+  )
 
+  echo
+  echo "$RESPONSE"
+
+  # Экранируем кавычки, новые строки и сохраняем как JSON
+  ESCAPED_RESPONSE=$(echo "$RESPONSE" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+
+  echo "{\"prompt\": \"$PROMPT\", \"response\": \"$ESCAPED_RESPONSE\"}" >> logs/qwen_log.jsonl
 done

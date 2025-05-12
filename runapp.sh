@@ -20,7 +20,7 @@ while true; do
     break
   fi
 
-  ./llama.cpp/llama/bin/llama-cli \
+  .$llama_path \
       -m "$MODEL_PATH" \
       -t "$THREADS" \
       -c "$CTX_SIZE" \

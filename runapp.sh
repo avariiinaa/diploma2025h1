@@ -1,51 +1,17 @@
 #!/bin/bash
+
 mkdir -p logs
-CONFIG_FILE="config.yaml"
-
-MODEL_PATH=$(grep 'model_path:' $CONFIG_FILE | awk '{print $2}' | tr -d '"')
-LLAMA_PATH=$(grep 'llama_path:' $CONFIG_FILE | awk '{print $2}')
-THREADS=$(grep 'threads:' $CONFIG_FILE | awk '{print $2}')
-CTX_SIZE=$(grep 'ctx_size:' $CONFIG_FILE | awk '{print $2}')
-PREDICT=$(grep 'predict:' $CONFIG_FILE | awk '{print $2}')
-TEMP=$(grep 'temp:' $CONFIG_FILE | awk '{print $2}')
-TOP_K=$(grep 'topk:' $CONFIG_FILE | awk '{print $2}')
-TOP_P=$(grep 'topp:' $CONFIG_FILE | awk '{print $2}')
-PENALTY=$(grep 'pen:' $CONFIG_FILE | awk '{print $2}')
-MIN_P=$(grep 'minp:' $CONFIG_FILE | awk '{print $2}')
-
-echo "model: $MODEL_PATH"
-echo "threads: $THREADS | ctx: $CTX_SIZE | tokens: $PREDICT"
-echo "type exit to close"
-echo
 
 while true; do
   read -p "type> " PROMPT
+  [[ "$PROMPT" == "exit" ]] && break
 
-  if [[ "$PROMPT" == "exit" ]]; then
-    echo "exit"
-    break
-  fi
+  RESPONSE=$(./../llama.cpp/llama/bin/llama-cli -m models/Qwen3-0.6B-Q4_K_M.gguf -p "$PROMPT")
 
-  # Выполняем инференс и сохраняем ответ в переменную RESPONSE
-  RESPONSE=$(
-    .$LLAMA_PATH \
-      -m "$MODEL_PATH" \
-      -t "$THREADS" \
-      -c "$CTX_SIZE" \
-      -n "$PREDICT" \
-      --temp "$TEMP" \
-      --top_k "$TOP_K" \
-      --top_p "$TOP_P" \
-      --min_p "$MIN_P" \
-      --repeat_penalty "$PENALTY" \
-      -p "$PROMPT./no_think" \
-    | tail -n +2  # убираем echo prompt'а, если llama.cpp его дублирует
-  )
-
-  echo
+  echo "===== RAW RESPONSE ====="
   echo "$RESPONSE"
+  echo "========================"
 
-  # Экранируем кавычки, новые строки и сохраняем как JSON
   ESCAPED_RESPONSE=$(echo "$RESPONSE" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
 
   echo "{\"prompt\": \"$PROMPT\", \"response\": \"$ESCAPED_RESPONSE\"}" >> logs/qwen_log.jsonl

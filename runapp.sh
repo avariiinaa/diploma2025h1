@@ -7,21 +7,20 @@ THREADS=$(grep 'threads:' $CONFIG_FILE | awk '{print $2}')
 CTX_SIZE=$(grep 'ctx_size:' $CONFIG_FILE | awk '{print $2}')
 PREDICT=$(grep 'predict:' $CONFIG_FILE | awk '{print $2}')
 
-echo "📦 Qwen-инференс CLI (интерактивный режим)"
-echo "  🧠 Модель: $MODEL_PATH"
-echo "  🔧 Потоки: $THREADS | Контекст: $CTX_SIZE | Токены: $PREDICT"
-echo "  💡 Напечатай 'exit' чтобы выйти."
+echo "model: $MODEL_PATH"
+echo "threads: $THREADS | ctx: $CTX_SIZE | tokens: $PREDICT"
+echo "type exit to close"
 echo
 
 while true; do
-  read -p "📝 Ввод> " PROMPT
+  read -p "type> " PROMPT
 
   if [[ "$PROMPT" == "exit" ]]; then
-    echo "👋 Выход."
+    echo "exit"
     break
   fi
 
-  ./llama.cpp/build/bin/main \
+  ./llama.cpp/llama/bin/llama-cli \
       -m "$MODEL_PATH" \
       -t "$THREADS" \
       -c "$CTX_SIZE" \

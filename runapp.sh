@@ -26,7 +26,7 @@ while true; do
       -t "$THREADS" \
       -c "$CTX_SIZE" \
       -n "$PREDICT" \
-      -p "$PROMPT"
+      -p $PROMPT
 
   echo
 done

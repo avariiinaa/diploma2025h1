@@ -37,11 +37,11 @@ while true; do
       --min_p "$MIN_P" \
       --repeat_penalty "$PENALTY" \
       -p "$PROMPT./no_think" 2>&1)
+  echo $RESPONSE
+  ESCAPED_RESPONSE=$(echo "$RESPONSE" | sed -e 's/"/\\"/g' -e 's/$/\\n/' | tr -d '\n')
 
-ESCAPED_RESPONSE=$(echo "$RESPONSE" | sed -e 's/"/\\"/g' -e 's/$/\\n/' | tr -d '\n')
+  # Формируем JSON-запись и пишем в лог
+  TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  echo "{\"timestamp\": \"$TIMESTAMP\", \"prompt\": \"$PROMPT\", \"response\": \"$ESCAPED_RESPONSE\"}" >> logs/qwen_log.jsonl
 
-# Формируем JSON-запись и пишем в лог
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-echo "{\"timestamp\": \"$TIMESTAMP\", \"prompt\": \"$PROMPT\", \"response\": \"$ESCAPED_RESPONSE\"}" >> logs/qwen_log.jsonl
-echo $RESPONSE
 done

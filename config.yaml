@@ -1,4 +1,4 @@
-model_path: models/Qwen3-0.6B-Q2_K_L.gguf
+model_path: models/Qwen3-0.6B-Q4_K_M.gguf
 llama_path: /../llama.cpp/llama/bin/llama-cli
 threads: 4
 ctx_size: 512

@@ -22,7 +22,9 @@ def run_llama(model_path, prompt):
         "--temp", "1",
         "--n-predict", "64"
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    print("STDOUT:", result.stdout)  # Дебаг
+    print("STDERR:", result.stderr)  # Дебаг
     return result.stdout.strip()
 
 if __name__ == "__main__":

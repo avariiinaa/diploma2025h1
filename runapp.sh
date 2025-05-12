@@ -26,7 +26,7 @@ while true; do
     break
   fi
   
-  .$LLAMA_PATH \
+  RESPONSE=$(.$LLAMA_PATH \
       -m "$MODEL_PATH" \
       -t "$THREADS" \
       -c "$CTX_SIZE" \
@@ -36,9 +36,11 @@ while true; do
       --top_p "$TOP_P" \
       --min_p "$MIN_P" \
       --repeat_penalty "$PENALTY" \
-      -p "$PROMPT./no_think"
+      -p "$PROMPT./no_think")
 
-  echo
-  echo "$RESPONSE"
-  echo "{\"prompt\": \"$PROMPT\", \"response\": \"$(echo "$RESPONSE" | sed 's/"/\\\"/g' | sed 's/\n/\\n/g' | sed 's/\r/\\r/g' | sed 's/\t/\\t/g')}\"}" >> logs/qwen_log.jsonl
+ESCAPED_RESPONSE=$(echo "$RESPONSE" | sed -e 's/"/\\"/g' -e 's/$/\\n/' | tr -d '\n')
+
+# Формируем JSON-запись и пишем в лог
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+echo "{\"timestamp\": \"$TIMESTAMP\", \"prompt\": \"$PROMPT\", \"response\": \"$ESCAPED_RESPONSE\"}" >> logs/qwen_log.jsonl
 done

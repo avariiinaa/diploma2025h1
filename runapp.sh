@@ -27,15 +27,8 @@ while true; do
 
     # Запускаем llama.cpp с таймаутом (60 сек)
     echo "gen"
-    RESPONSE=$(timeout 60s $LLAMA_CMD -m "$MODEL_PATH" -p "$PROMPT" 2>&1)
-    EXIT_CODE=$?
+    RESPONSE=$($LLAMA_CMD -m "$MODEL_PATH" -p "$PROMPT" 2>&1)
 
-    # Обработка ошибок
-    if [ $EXIT_CODE -eq 124 ]; then
-        RESPONSE="ОШИБКА: Превышено время ожидания ответа (60 сек)"
-    elif [ $EXIT_CODE -ne 0 ]; then
-        RESPONSE="ОШИБКА: Код выхода $EXIT_CODE - $RESPONSE"
-    fi
 
     # Экранирование и логирование
     ESCAPED_PROMPT=$(escape_json "$PROMPT")
@@ -47,7 +40,7 @@ while true; do
 
     # Записываем в лог
     echo "$JSON_ENTRY" >> "$LOG_FILE"
-    echo "===== Ответ сохранен ====="
+    echo "===== saveed ====="
     echo "Файл: $LOG_FILE"
     echo "--------------------------"
     echo "$RESPONSE"

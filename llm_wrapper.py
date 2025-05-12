@@ -22,7 +22,7 @@ def run_llama(model_path, prompt):
         "--temp", "1",
         "--n-predict", "64"
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True,timeout=20)
     print("STDOUT:", result.stdout)  # Дебаг
     print("STDERR:", result.stderr)  # Дебаг
     return result.stdout.strip()
@@ -33,7 +33,8 @@ if __name__ == "__main__":
 
     while True:
         prompt = input("> ")+'/no_think'
-        if prompt.lower() == "exit":
+        print(prompt)
+        if prompt.lower() == "exit/no_think":
             break
 
         response = run_llama(model_path, prompt)

@@ -1,0 +1,4 @@
+model_path: "./models/Qwen3-0.6B-Q2_K_L.gguf"
+threads: 4
+ctx_size: 2048
+predict: 128

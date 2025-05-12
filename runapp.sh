@@ -38,15 +38,14 @@ while true; do
       --repeat_penalty "$PENALTY" \
       -p "$PROMPT./no_think" 2>&1 | tee /dev/tty)
   echo $RESPONSE
-ESCAPED_RESPONSE=$(echo "$RESPONSE" | \
+  ESCAPED_RESPONSE=$(echo "$RESPONSE" | \
   sed -e 's/"/\\"/g' \
       -e 's/\\/\\\\/g' \
       -e 's/\n/\\n/g' \
       -e 's/\r/\\r/g' \
       -e 's/\t/\\t/g')
   # Формируем JSON-запись и пишем в лог
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-JSON_ENTRY="{\"timestamp\":\"$TIMESTAMP\",\"prompt\":\"$PROMPT\",\"response\":\"$ESCAPED_RESPONSE\"}"
-echo "$JSON_ENTRY" >> "logs/qwen_log.jsonl"
+  JSON_ENTRY="{\"prompt\":\"$PROMPT\",\"response\":\"$ESCAPED_RESPONSE\"}"
+  echo "$JSON_ENTRY" >> "logs/qwen_log.jsonl"
 
 done

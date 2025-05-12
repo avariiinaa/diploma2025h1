@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Настройки
-MODEL_PATH="models/Qwen3-0.6B-Q4_K_M.gguf"
-LOG_DIR="logs"
-LOG_FILE="$LOG_DIR/qwen_log.jsonl"
-LLAMA_CMD="./../llama.cpp/llama/llama-cli"  # Путь к бинарнику llama.cpp
+MODEL_PATH=models/Qwen3-0.6B-Q4_K_M.gguf
+LOG_DIR=logs
+LOG_FILE=$LOG_DIR/qwen_log.jsonl
+LLAMA_CMD=./../llama.cpp/llama/llama-cli  # Путь к бинарнику llama.cpp
 
 # Создаем директорию для логов
 mkdir -p "$LOG_DIR"
@@ -22,11 +22,11 @@ escape_json() {
 
 # Основной цикл
 while true; do
-    read -p "Введите промпт (или 'exit' для выхода): " PROMPT
+    read -p "type> : " PROMPT
     [[ "$PROMPT" == "exit" ]] && break
 
     # Запускаем llama.cpp с таймаутом (60 сек)
-    echo "Генерация ответа..."
+    echo "gen"
     RESPONSE=$(timeout 60s $LLAMA_CMD -m "$MODEL_PATH" -p "$PROMPT" 2>&1)
     EXIT_CODE=$?
 

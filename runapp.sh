@@ -40,5 +40,5 @@ while true; do
 
   echo
   echo "$RESPONSE"
-  echo "{\"prompt\": \"$PROMPT\", \"response\": \"${RESPONSE//\"/\\\"}\"}" >> logs/qwen_log.jsonl
+  echo "{\"prompt\": \"$PROMPT\", \"response\": \"$(echo "$RESPONSE" | sed 's/"/\\\"/g' | sed 's/\n/\\n/g' | sed 's/\r/\\r/g' | sed 's/\t/\\t/g')}\"}" >> logs/qwen_log.jsonl
 done

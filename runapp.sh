@@ -1,5 +1,5 @@
 #!/bin/bash
-
+mkdir -p logs
 CONFIG_FILE="config.yaml"
 
 MODEL_PATH=$(grep 'model_path:' $CONFIG_FILE | awk '{print $2}' | tr -d '"')
@@ -39,4 +39,6 @@ while true; do
       -p "$PROMPT./no_think"
 
   echo
+  echo "$RESPONSE"
+  echo "{\"prompt\": \"$PROMPT\", \"response\": \"${RESPONSE//\"/\\\"}\"}" >> logs/qwen_log.jsonl
 done

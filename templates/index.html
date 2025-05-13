@@ -13,7 +13,7 @@
         .message { margin-bottom: 10px; padding: 8px; border-radius: 4px; }
         .user { background-color: #e3f2fd; }
         .llm { background-color: #f1f8e9; }
-        #generation-controls { margin-top: 20px; }
+        textarea { width: 100%; min-height: 100px; }
     </style>
 </head>
 <body>
@@ -32,11 +32,8 @@
         <div class="panel">
             <h2>Conversation</h2>
             <div id="conversation"></div>
-            <div id="generation-controls">
-                <textarea id="prompt-input" rows="3" style="width: 100%;"></textarea>
-                <button onclick="generate()">Generate</button>
-                <button onclick="stopGeneration()">Stop</button>
-            </div>
+            <textarea id="prompt-input" placeholder="Enter your prompt..."></textarea>
+            <button onclick="sendPrompt()">Send</button>
         </div>
     </div>
 
@@ -45,91 +42,91 @@
         const conversationDiv = document.getElementById('conversation');
         const cpuValue = document.getElementById('cpu-value');
         const memValue = document.getElementById('mem-value');
+        let chart;
         
         // Инициализация графиков
-        const ctx = document.getElementById('metrics-chart').getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [
-                    {
-                        label: 'CPU Usage (%)',
-                        data: [],
-                        borderColor: 'rgb(255, 99, 132)',
-                        tension: 0.1
-                    },
-                    {
-                        label: 'Memory Usage (%)',
-                        data: [],
-                        borderColor: 'rgb(54, 162, 235)',
-                        tension: 0.1
+        function initChart(data) {
+            const ctx = document.getElementById('metrics-chart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.history.timestamps,
+                    datasets: [
+                        {
+                            label: 'CPU Usage (%)',
+                            data: data.history.cpu,
+                            borderColor: 'rgb(255, 99, 132)',
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Memory Usage (%)',
+                            data: data.history.memory,
+                            borderColor: 'rgb(54, 162, 235)',
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { min: 0, max: 100 }
                     }
-                ]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    x: { title: { display: true, text: 'Time' } },
-                    y: { min: 0, max: 100 }
                 }
-            }
-        });
+            });
+        }
         
         // Обработчики WebSocket
-        socket.on('metrics_update', data => {
-            cpuValue.textContent = data.cpu.toFixed(1);
-            memValue.textContent = data.memory.toFixed(1);
-            
-            // Обновление графика
-            if (chart.data.labels.length > 30) {
-                chart.data.labels.shift();
-                chart.data.datasets[0].data.shift();
-                chart.data.datasets[1].data.shift();
-            }
-            
-            chart.data.labels.push(data.timestamp);
-            chart.data.datasets[0].data.push(data.cpu);
-            chart.data.datasets[1].data.push(data.memory);
-            chart.update();
-        });
-        
-        socket.on('conversation_update', data => {
-            const userMsg = document.createElement('div');
-            userMsg.className = 'message user';
-            userMsg.innerHTML = `<strong>[${data.timestamp}] User:</strong><p>${data.prompt}</p>`;
-            
-            const llmMsg = document.createElement('div');
-            llmMsg.className = 'message llm';
-            llmMsg.innerHTML = `<strong>[${data.timestamp}] LLM:</strong><p>${data.response}</p>`;
-            
-            conversationDiv.appendChild(userMsg);
-            conversationDiv.appendChild(llmMsg);
-            conversationDiv.scrollTop = conversationDiv.scrollHeight;
-        });
-        
-        socket.on('partial_response', data => {
-            const lastLlmMsg = conversationDiv.querySelector('.llm:last-child');
-            if (lastLlmMsg) {
-                lastLlmMsg.querySelector('p').textContent += data.text + ' ';
-                conversationDiv.scrollTop = conversationDiv.scrollHeight;
-            }
-        });
-        
-        socket.on('initial_data', data => {
-            // Загрузка начальных данных
+        socket.on('init', function(data) {
+            // Загрузка истории разговора
             data.conversation.forEach(msg => {
-                const event = { 
-                    timestamp: msg.timestamp,
-                    prompt: msg.prompt,
-                    response: msg.response
-                };
-                socket.emit('conversation_update', event);
+                addMessage(msg.role, msg.content);
+            });
+            
+            // Инициализация графика
+            initChart({
+                history: {
+                    timestamps: Array(30).fill(''),
+                    cpu: Array(30).fill(0),
+                    memory: Array(30).fill(0)
+                }
             });
         });
         
-        // Функции управления
-        function generate() {
+        socket.on('system_metrics', function(data) {
+            cpuValue.textContent = data.cpu.toFixed(1);
+            memValue.textContent = data.memory.toFixed(1);
+            
+            if (chart) {
+                chart.data.labels = data.history.timestamps;
+                chart.data.datasets[0].data = data.history.cpu;
+                chart.data.datasets[1].data = data.history.memory;
+                chart.update();
+            }
+        });
+        
+        socket.on('conversation_update', function(data) {
+            addMessage(data.role, data.content);
+        });
+        
+        socket.on('llm_output', function(data) {
+            addMessage('llm', data.text, true);
+        });
+        
+        function addMessage(role, content, append = false) {
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            div.innerHTML = `<strong>${role}:</strong> ${content}`;
+            
+            if (append && conversationDiv.lastChild && conversationDiv.lastChild.className.includes('llm')) {
+                conversationDiv.lastChild.innerHTML += ` ${content}`;
+            } else {
+                conversationDiv.appendChild(div);
+            }
+            
+            conversationDiv.scrollTop = conversationDiv.scrollHeight;
+        }
+        
+        function sendPrompt() {
             const prompt = document.getElementById('prompt-input').value;
             if (prompt.trim()) {
                 fetch('/api/generate', {
@@ -139,10 +136,6 @@
                 });
                 document.getElementById('prompt-input').value = '';
             }
-        }
-        
-        function stopGeneration() {
-            fetch('/api/stop', { method: 'POST' });
         }
     </script>
 </body>

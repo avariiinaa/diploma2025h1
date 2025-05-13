@@ -1,235 +1,173 @@
-import os
-import sys
-import time
-import signal
-import threading
-import subprocess
-import queue
-import psutil
-from datetime import datetime
-from collections import deque
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template_string, jsonify, request
 from flask_socketio import SocketIO
+import subprocess
+import threading
+import psutil
+import time
+import os
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-class LLMService:
+class SimpleLLMServer:
     def __init__(self):
         self.llm_process = None
-        self.response_queue = queue.Queue()
-        self.running = False
-        self.monitor_thread = None
-        self.cpu_history = deque(maxlen=100)
-        self.mem_history = deque(maxlen=100)
-        self.timestamps = deque(maxlen=100)
         self.conversation = []
-        self.process_lock = threading.Lock()
-        self.model_path = 'models/Qwen3-0.6B-Q4_K_M.gguf'  # Убедитесь в правильности пути
-        
-        # Проверка существования файлов
-        self.check_files()
-        
-        self.start_monitoring()
-        self.start_llm_process()
+        self.running = True
+        self.start_llm()
+        threading.Thread(target=self.monitor_resources, daemon=True).start()
 
-    def check_files(self):
-        """Проверка наличия необходимых файлов"""
-        required_files = {
-            'llama.cpp': './../llama.cpp/llama/bin/llama-cli',
-            'model': self.model_path
-        }
-        
-        for name, path in required_files.items():
-            if not os.path.exists(path):
-                print(f"Error: {name} not found at {path}", file=sys.stderr)
-                print("Please ensure:")
-                print("1. llama.cpp is compiled and named 'main' in current directory")
-                print(f"2. Model file exists at {self.model_path}")
-                sys.exit(1)
+    def start_llm(self):
+        """Запуск llama.cpp в режиме диалога"""
+        if not os.path.exists('./../llama.cpp/llama/bin/llama-cli'):
+            print("Error: llama.cpp executable './main' not found!")
+            return
 
-    def start_llm_process(self):
-        """Запуск llama.cpp с улучшенной обработкой ошибок"""
-        with self.process_lock:
-            if self.llm_process is not None and self.llm_process.poll() is None:
-                return
-            
-            try:
-                # Убедимся, что старый процесс завершён
-                if self.llm_process is not None:
-                    self.llm_process.terminate()
-                    try:
-                        self.llm_process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        self.llm_process.kill()
-                
-                # Запускаем новый процесс
-                self.llm_process = subprocess.Popen(
-                    ['./main', 
-                     '-m', self.model_path,
-                     '-n', '256',
-                     '--temp', '0.7',
-                     '--ctx-size', '2048',
-                     '--keep', '30'],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True,
-                    start_new_session=True  # Важно для корректного завершения
-                )
-                
-                # Запускаем поток чтения вывода
-                threading.Thread(target=self.read_output, daemon=True).start()
-                print("LLM process started successfully")
-                
-                # Мониторинг stderr для диагностики
-                threading.Thread(target=self.read_stderr, daemon=True).start()
-                
-            except Exception as e:
-                print(f"Failed to start LLM process: {str(e)}", file=sys.stderr)
-                self.llm_process = None
+        if not os.path.exists('models/Qwen3-0.6B-Q4_K_M.gguf'):
+            print("Error: Model file not found!")
+            return
+
+        # Запускаем процесс с поддержкой диалога
+        self.llm_process = subprocess.Popen(
+            ['./../llama.cpp/llama/bin/llama-cli', 
+             '-m', 'models/Qwen3-0.6B-Q4_K_M.gguf',
+             '--interactive',  # Режим интерактивного диалога
+             '--ctx-size', '2048',
+             '--keep', '-1',  # Бесконечный диалог
+             '--temp', '0.7',
+             '--color', '-i',
+             '-r', 'User:',
+             '-f', 'prompts/chat-with-bob.txt'],  # Файл с промптом
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        # Поток для чтения ответов
+        threading.Thread(target=self.read_output, daemon=True).start()
 
     def read_output(self):
-        """Чтение stdout процесса"""
-        while self.llm_process and self.llm_process.poll() is None:
-            try:
-                line = self.llm_process.stdout.readline()
-                if not line:
-                    break
-                    
-                line = line.strip()
-                if line:  # Игнорируем пустые строки
-                    self.response_queue.put(line)
-                    socketio.emit('llm_output', {'text': line})
-                    
-            except (ValueError, IOError) as e:
-                print(f"Output read error: {str(e)}", file=sys.stderr)
+        """Чтение вывода модели"""
+        buffer = ""
+        while self.running and self.llm_process.poll() is None:
+            line = self.llm_process.stdout.readline()
+            if not line:
                 break
+                
+            buffer += line
+            if "User:" in buffer:  # Конец ответа модели
+                response = buffer.split("User:")[0].strip()
+                if response:
+                    self.conversation.append(('llm', response))
+                    socketio.emit('llm_response', {'text': response})
+                buffer = ""
 
-    def read_stderr(self):
-        """Чтение stderr для диагностики"""
-        while self.llm_process and self.llm_process.poll() is None:
-            try:
-                line = self.llm_process.stderr.readline()
-                if not line:
-                    break
-                    
-                line = line.strip()
-                if line:  # Выводим ошибки в консоль
-                    print(f"LLM stderr: {line}", file=sys.stderr)
-                    
-            except (ValueError, IOError) as e:
-                print(f"Error reading stderr: {str(e)}", file=sys.stderr)
-                break
-
-    def generate(self, prompt):
-        """Отправка промпта с обработкой ошибок"""
-        if not prompt.strip():
-            return
+    def send_prompt(self, prompt):
+        """Отправка промпта модели"""
+        if not self.llm_process or self.llm_process.poll() is not None:
+            self.start_llm()
+            time.sleep(1)  # Даем время на запуск
             
-        with self.process_lock:
-            # Проверяем состояние процесса
-            if self.llm_process is None or self.llm_process.poll() is not None:
-                print("LLM process not running, attempting to restart...")
-                self.start_llm_process()
-                time.sleep(2)  # Даём время на инициализацию
-                
-            if self.llm_process is None or self.llm_process.poll() is not None:
-                print("Failed to start LLM process")
-                socketio.emit('llm_error', {'text': 'LLM process is not running'})
-                return
-                
-            try:
-                # Добавляем завершающий символ новой строки
-                full_prompt = f"{prompt}\n"
-                
-                # Пишем в stdin
-                self.llm_process.stdin.write(full_prompt)
-                self.llm_process.stdin.flush()
-                
-                # Логируем запрос
-                self.conversation.append({'role': 'user', 'content': prompt})
-                socketio.emit('conversation_update', {'role': 'user', 'content': prompt})
-                
-            except (BrokenPipeError, IOError) as e:
-                print(f"Write error: {str(e)}", file=sys.stderr)
-                self.llm_process = None
-                socketio.emit('llm_error', {'text': 'Connection to LLM lost, reconnecting...'})
-                self.generate(prompt)  # Повторная попытка
-    def start_monitoring(self):
-        """Мониторинг ресурсов системы"""
-        if not self.running:
-            self.running = True
-            self.monitor_thread = threading.Thread(target=self.monitor_resources, daemon=True)
-            self.monitor_thread.start()
-    
+        try:
+            self.conversation.append(('user', prompt))
+            self.llm_process.stdin.write(f"{prompt}\n")
+            self.llm_process.stdin.flush()
+        except Exception as e:
+            print(f"Error sending prompt: {e}")
+
     def monitor_resources(self):
-        """Сбор метрик системы"""
+        """Мониторинг CPU и памяти"""
         while self.running:
             cpu = psutil.cpu_percent()
             mem = psutil.virtual_memory().percent
-            timestamp = datetime.now().strftime('%H:%M:%S')
-            
-            self.cpu_history.append(cpu)
-            self.mem_history.append(mem)
-            self.timestamps.append(timestamp)
-            
             socketio.emit('system_metrics', {
                 'cpu': cpu,
                 'memory': mem,
-                'timestamp': timestamp,
-                'history': {
-                    'timestamps': list(self.timestamps),
-                    'cpu': list(self.cpu_history),
-                    'memory': list(self.mem_history)
-                }
+                'timestamp': time.strftime("%H:%M:%S")
             })
-            
             time.sleep(1)
-    
-    def get_status(self):
-        """Текущее состояние системы"""
-        return {
-            'cpu': psutil.cpu_percent(),
-            'memory': psutil.virtual_memory().percent,
-            'conversation': self.conversation,
-            'running': self.running
-        }
 
-llm_service = LLMService()
+llm_server = SimpleLLMServer()
 
 @app.route('/')
-def index():
-    return render_template('index.html')
+def home():
+    return render_template_string('''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>LLM Chat</title>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+            <style>
+                body { font-family: Arial; max-width: 800px; margin: 0 auto; padding: 20px; }
+                #chat { border: 1px solid #ddd; padding: 10px; height: 400px; overflow-y: auto; }
+                .user { color: blue; margin: 5px 0; }
+                .llm { color: green; margin: 5px 0; }
+                #metrics { margin: 10px 0; padding: 10px; background: #f5f5f5; }
+                textarea { width: 100%; height: 80px; margin: 10px 0; }
+            </style>
+        </head>
+        <body>
+            <h1>LLM Chat</h1>
+            <div id="metrics">
+                CPU: <span id="cpu">0</span>% | 
+                Memory: <span id="memory">0</span>%
+            </div>
+            <div id="chat"></div>
+            <textarea id="prompt" placeholder="Type your message..."></textarea>
+            <button onclick="send()">Send</button>
+            
+            <script>
+                const socket = io();
+                const chatDiv = document.getElementById('chat');
+                
+                // Обработка ответов от LLM
+                socket.on('llm_response', function(data) {
+                    const div = document.createElement('div');
+                    div.className = 'llm';
+                    div.textContent = 'LLM: ' + data.text;
+                    chatDiv.appendChild(div);
+                    chatDiv.scrollTop = chatDiv.scrollHeight;
+                });
+                
+                // Обновление метрик системы
+                socket.on('system_metrics', function(data) {
+                    document.getElementById('cpu').textContent = data.cpu.toFixed(1);
+                    document.getElementById('memory').textContent = data.memory.toFixed(1);
+                });
+                
+                // Отправка промпта
+                function send() {
+                    const prompt = document.getElementById('prompt').value;
+                    if (prompt.trim()) {
+                        const div = document.createElement('div');
+                        div.className = 'user';
+                        div.textContent = 'You: ' + prompt;
+                        chatDiv.appendChild(div);
+                        
+                        fetch('/api/chat', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({prompt: prompt})
+                        });
+                        
+                        document.getElementById('prompt').value = '';
+                        chatDiv.scrollTop = chatDiv.scrollHeight;
+                    }
+                }
+            </script>
+        </body>
+        </html>
+    ''')
 
-@app.route('/api/generate', methods=['POST'])
-def api_generate():
-    prompt = request.json.get('prompt', '')
-    if prompt:
-        llm_service.generate(prompt)
-    return jsonify({'status': 'processing'})
-
-@app.route('/api/status')
-def api_status():
-    return jsonify(llm_service.get_status())
-
-@socketio.on('connect')
-def handle_connect():
-    socketio.emit('init', llm_service.get_status())
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    data = request.get_json()
+    llm_server.send_prompt(data['prompt'])
+    return jsonify({'status': 'sent'})
 
 if __name__ == '__main__':
-    # Обработка Ctrl+C для корректного завершения
-    def signal_handler(sig, frame):
-        print("\nShutting down...")
-        llm_service.running = False
-        if llm_service.llm_process:
-            llm_service.llm_process.terminate()
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    
-    print("Starting server...")
-    print(f"Web interface: http://localhost:8000")
+    print("Starting server at http://localhost:8000")
     socketio.run(app, host='0.0.0.0', port=8000)

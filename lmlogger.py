@@ -4,11 +4,26 @@ import threading
 import subprocess
 from datetime import datetime
 from collections import deque
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template,render_template_string, request, jsonify
 from flask_socketio import SocketIO
 import json
 import os
 import signal
+
+
+def get_local_ip():
+    """Получаем локальный IP адрес"""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # не отправляем пакет, просто получаем локальный IP
+        s.connect(('10.255.255.255', 1))
+        IP = s.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        s.close()
+    return IP
+
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -231,25 +246,33 @@ def handle_connect():
     socketio.emit('initial_data', llm_service.get_current_state())
 
 
-if __name__ == "__main__":
-    # Конфигурация (замените на свои пути)
-    config = {
-        'llama_path': './../llama.cpp/llama/llama-cli',  # путь к llama.cpp
-        'model_path': 'models/Qwen3-0.6B-Q4_K_M.gguf',  # путь к модели
-        'log_file': 'llm_conversation.log',
-        'host': '0.0.0.0',  # для доступа с других устройств
-        'port': 5000
-    }
+@app.route('/')
+def home():
+    return render_template_string('''
+        <h1>LLM Monitoring</h1>
+        <p>Сервер работает!</p>
+        <p>Подключитесь с другого устройства по адресу: http://{{ip}}:5000</p>
+    ''', ip=get_local_ip())
+
+if __name__ == '__main__':
+    local_ip = get_local_ip()
+    print(f"\nДоступные адреса для подключения:")
+    print(f"• http://localhost:5000")
+    print(f"• http://{local_ip}:5000")
+    print("\nЕсли не получается подключиться, проверьте:")
+    print("1. Брандмауэр разрешает входящие подключения на порт 5000")
+    print("2. Устройства в одной сети")
     
-    # Инициализация сервиса
-    llm_service = LLMService(**config)
-    
-    print(f"Web interface available at http://{config['host']}:{config['port']}")
+    # Запуск в отдельном потоке для обработки Ctrl+C
+    server = Thread(target=lambda: app.run(
+        host='0.0.0.0', 
+        port=5000, 
+        threaded=True
+    ))
+    server.daemon = True
+    server.start()
     
     try:
-        while True:
-            time.sleep(1)
+        while True: time.sleep(1)
     except KeyboardInterrupt:
-        llm_service.stop_monitoring()
-        llm_service.stop_llm()
-        print("Service stopped")
+        print("\nСервер остановлен")

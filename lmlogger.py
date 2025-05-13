@@ -27,7 +27,7 @@ class LLMEngine:
         
     def verify_files(self):
         """Проверка наличия необходимых файлов"""
-        if not os.path.exists('./../llama.cpp/llama/bin/llama-cli'):
+        if not os.path.exists('''{sys.argv[1]}'''):
             print("ERROR: llama.cpp executable './main' not found!", file=sys.stderr)
             sys.exit(1)
             
@@ -46,7 +46,7 @@ class LLMEngine:
             # Запускаем процесс с таймаутом
             process = subprocess.Popen(
                 [
-                    './../llama.cpp/llama/bin/llama-cli',
+                    './{sys.argv[1]}',
                     '-m', 'models/Qwen3-0.6B-Q4_K_M.gguf',
                     '-p', prompt,
                     '-n', '256',  # Максимальное количество токенов
@@ -229,7 +229,7 @@ def chat_api():
     return jsonify({'status': 'success'})
 
 if __name__ == '__main__':
-    print("Starting server at http://localhost:5000")
+    print("Starting server at http://localhost:8000")
     print("Make sure:")
     print("1. llama.cpp is compiled as './main'")
     print("2. Model file exists at './models/llama-2-7b.Q4_K_M.gguf'")

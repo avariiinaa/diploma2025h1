@@ -27,6 +27,7 @@ class LLMEngine:
         
     def verify_files(self):
         """Проверка наличия необходимых файлов"""
+        print('./../llama.cpp/llama/bin/llama-cli'=='''{sys.argv[1]}''', '''{sys.argv[1]}''','./../llama.cpp/llama/bin/llama-cli')
         if not os.path.exists('''{sys.argv[1]}'''):
             print("ERROR: llama.cpp executable './main' not found!", file=sys.stderr)
             sys.exit(1)
@@ -46,7 +47,7 @@ class LLMEngine:
             # Запускаем процесс с таймаутом
             process = subprocess.Popen(
                 [
-                    './{sys.argv[1]}',
+                    './../llama.cpp/llama/bin/llama-cli',
                     '-m', 'models/Qwen3-0.6B-Q4_K_M.gguf',
                     '-p', prompt,
                     '-n', '256',  # Максимальное количество токенов

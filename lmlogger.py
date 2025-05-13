@@ -235,7 +235,7 @@ def handle_connect():
 if __name__ == "__main__":
     # Конфигурация (замените на свои пути)
     config = {
-        'llama_path': './../llama.cpp/llama/llama-cli',  # путь к llama.cpp
+        'llama_path': './../llama.cpp/llama/bin/llama-cli',  # путь к llama.cpp
         'model_path': 'models/Qwen3-0.6B-Q4_K_M.gguf',  # путь к модели
         'log_file': 'llm_conversation.log',
         'host': '0.0.0.0',  # для доступа с других устройств

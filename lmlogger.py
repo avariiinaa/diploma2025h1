@@ -4,35 +4,18 @@ import threading
 import subprocess
 from datetime import datetime
 from collections import deque
-from flask import Flask, render_template,render_template_string, request, jsonify
+from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO
 import json
 import os
 import signal
-import socket
-from threading import Thread
-
-
-def get_local_ip():
-    """Получаем локальный IP адрес"""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        # не отправляем пакет, просто получаем локальный IP
-        s.connect(('10.255.255.255', 1))
-        IP = s.getsockname()[0]
-    except Exception:
-        IP = '127.0.0.1'
-    finally:
-        s.close()
-    return IP
-
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 class LLMService:
     def __init__(self, llama_path, model_path, log_file="llm_conversation.log", 
-                 max_history=100, refresh_interval=1.0, host='0.0.0.0', port=5000):
+                 max_history=100, refresh_interval=1.0, host='0.0.0.0', port=8000):
         """
         Инициализация LLM сервиса с веб-интерфейсом
         
@@ -248,33 +231,25 @@ def handle_connect():
     socketio.emit('initial_data', llm_service.get_current_state())
 
 
-@app.route('/')
-def home():
-    return render_template_string('''
-        <h1>LLM Monitoring</h1>
-        <p>Сервер работает!</p>
-        <p>Подключитесь с другого устройства по адресу: http://{{ip}}:5000</p>
-    ''', ip=get_local_ip())
-
-if __name__ == '__main__':
-    local_ip = get_local_ip()
-    print(f"\nДоступные адреса для подключения:")
-    print(f"• http://localhost:5000")
-    print(f"• http://{local_ip}:5000")
-    print("\nЕсли не получается подключиться, проверьте:")
-    print("1. Брандмауэр разрешает входящие подключения на порт 5000")
-    print("2. Устройства в одной сети")
+if __name__ == "__main__":
+    # Конфигурация (замените на свои пути)
+    config = {
+        'llama_path': './../llama.cpp/llama/llama-cli',  # путь к llama.cpp
+        'model_path': 'models/Qwen3-0.6B-Q4_K_M.gguf',  # путь к модели
+        'log_file': 'llm_conversation.log',
+        'host': '0.0.0.0',  # для доступа с других устройств
+        'port': 8000
+    }
     
-    # Запуск в отдельном потоке для обработки Ctrl+C
-    server = Thread(target=lambda: app.run(
-        host='0.0.0.0', 
-        port=5000, 
-        threaded=True
-    ))
-    server.daemon = True
-    server.start()
+    # Инициализация сервиса
+    llm_service = LLMService(**config)
+    
+    print(f"Web interface available at http://{config['host']}:{config['port']}")
     
     try:
-        while True: time.sleep(1)
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
-        print("\nСервер остановлен")
+        llm_service.stop_monitoring()
+        llm_service.stop_llm()
+        print("Service stopped")

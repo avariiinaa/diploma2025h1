@@ -6,60 +6,87 @@ from flask import Flask, render_template_string, jsonify, request
 from flask_socketio import SocketIO
 import os
 import sys
+import queue
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-class LLMWrapper:
+class LLMEngine:
     def __init__(self):
         self.process = None
-        self.lock = threading.Lock()
-        self.keep_alive = True
-        self.start_process()
+        self.output_queue = queue.Queue()
+        self.input_queue = queue.Queue()
+        self.running = True
+        self.ready = False
         
-        # Мониторинг ресурсов
+        # Запускаем потоки
+        threading.Thread(target=self.process_manager, daemon=True).start()
+        threading.Thread(target=self.output_reader, daemon=True).start()
         threading.Thread(target=self.monitor_resources, daemon=True).start()
+        threading.Thread(target=self.input_writer, daemon=True).start()
+
+    def process_manager(self):
+        """Управление жизненным циклом процесса"""
+        while self.running:
+            if not self.process or self.process.poll() is not None:
+                self.start_process()
+            time.sleep(1)
 
     def start_process(self):
-        """Запуск llama.cpp с автоматическим восстановлением"""
-        with self.lock:
+        """Запуск llama.cpp с правильными параметрами"""
+        try:
             if self.process and self.process.poll() is None:
-                return
+                self.process.terminate()
 
-            cmd = [
-                './../llama.cpp/llama/bin/llama-cli',
-                '-m', 'models/Qwen3-0.6B-Q4_K_M.gguf',
-                '--interactive-first',
-                '--ctx-size', '2048',
-                '--keep', '30',
-                '--temp', '0.7',
-                '-r', '### User:',
-                '--color', '-i'
-            ]
-            
+            self.process = subprocess.Popen(
+                [
+                    './../llama.cpp/llama/bin/llama-cli',
+                    '-m', 'models/Qwen3-0.6B-Q4_K_M.gguf',
+                    '--interactive',
+                    '--ctx-size', '2048',
+                    '--keep', '-1',
+                    '--temp', '0.7',
+                    '-r', '### User:',
+                    '--color', '-i',
+                    '-ins'  # Режим инструкций для лучшего диалога
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            self.ready = True
+            print("Процесс LLM успешно запущен")
+        except Exception as e:
+            print(f"Ошибка запуска: {e}", file=sys.stderr)
+            self.ready = False
+
+    def input_writer(self):
+        """Отправка промптов в процесс"""
+        while self.running:
+            if not self.ready:
+                time.sleep(0.5)
+                continue
+                
+            prompt = self.input_queue.get()
             try:
-                self.process = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True
-                )
-                print("LLM процесс успешно запущен")
-                
-                # Поток для чтения вывода
-                threading.Thread(target=self.read_output, daemon=True).start()
-                
+                self.process.stdin.write(prompt + "\n")
+                self.process.stdin.flush()
+                print(f"Отправлен промпт: {prompt[:50]}...")
             except Exception as e:
-                print(f"Ошибка запуска LLM: {e}", file=sys.stderr)
-                self.process = None
+                print(f"Ошибка отправки: {e}", file=sys.stderr)
+                self.ready = False
 
-    def read_output(self):
+    def output_reader(self):
         """Чтение вывода процесса"""
         buffer = ""
-        while self.keep_alive and self.process and self.process.poll() is None:
+        while self.running:
+            if not self.ready or not self.process:
+                time.sleep(0.5)
+                continue
+                
             try:
                 line = self.process.stdout.readline()
                 if not line:
@@ -70,50 +97,36 @@ class LLMWrapper:
                 if "### User:" in buffer:
                     response = buffer.split("### User:")[0].strip()
                     if response:
+                        self.output_queue.put(response)
                         socketio.emit('llm_response', {'text': response})
                     buffer = ""
-                    
             except Exception as e:
-                print(f"Ошибка чтения вывода: {e}", file=sys.stderr)
-                break
-
-    def send_prompt(self, prompt):
-        """Отправка промпта с защитой от сбоев"""
-        for attempt in range(3):  # 3 попытки
-            with self.lock:
-                if not self.process or self.process.poll() is not None:
-                    self.start_process()
-                    time.sleep(2)  # Даем время на инициализацию
-                    continue
-                    
-                try:
-                    self.process.stdin.write(f"{prompt}\n")
-                    self.process.stdin.flush()
-                    return True
-                    
-                except (BrokenPipeError, IOError) as e:
-                    print(f"Ошибка отправки (попытка {attempt+1}): {e}", file=sys.stderr)
-                    self.process = None
-                    time.sleep(1)
-                    
-        print("Не удалось отправить промпт после 3 попыток")
-        return False
+                print(f"Ошибка чтения: {e}", file=sys.stderr)
+                self.ready = False
 
     def monitor_resources(self):
-        """Мониторинг использования ресурсов"""
-        while self.keep_alive:
+        """Мониторинг ресурсов системы"""
+        while self.running:
             cpu = psutil.cpu_percent()
             mem = psutil.virtual_memory().percent
             socketio.emit('system_metrics', {
                 'cpu': cpu,
                 'memory': mem,
-                'timestamp': time.strftime("%H:%M:%S")
+                'timestamp': time.strftime("%H:%M:%S"),
+                'status': 'ready' if self.ready else 'error'
             })
             time.sleep(1)
 
+    def generate(self, prompt):
+        """Добавление промпта в очередь"""
+        if self.ready:
+            self.input_queue.put(prompt)
+            return True
+        return False
+
     def shutdown(self):
         """Корректное завершение"""
-        self.keep_alive = False
+        self.running = False
         if self.process and self.process.poll() is None:
             self.process.terminate()
             try:
@@ -121,7 +134,7 @@ class LLMWrapper:
             except subprocess.TimeoutExpired:
                 self.process.kill()
 
-llm = LLMWrapper()
+llm = LLMEngine()
 
 @app.route('/')
 def home():
@@ -140,14 +153,16 @@ def home():
                 textarea { width: 100%; height: 80px; margin: 10px 0; }
                 button { padding: 8px 15px; background: #4CAF50; color: white; border: none; cursor: pointer; }
                 button:hover { background: #45a049; }
+                #status { font-weight: bold; }
+                .error { color: red; }
             </style>
         </head>
         <body>
             <h1>LLM Chat</h1>
             <div id="metrics">
                 CPU: <span id="cpu">0</span>% | 
-                Memory: <span id="memory">0</span>% | 
-                <span id="status">Status: OK</span>
+                Memory: <span id="memory">0</span>% |
+                Status: <span id="status">Loading...</span>
             </div>
             <div id="chat"></div>
             <textarea id="prompt" placeholder="Type your message..."></textarea>
@@ -163,10 +178,18 @@ def home():
                     addMessage('llm', data.text);
                 });
                 
-                // Метрики системы
+                // Обновление метрик
                 socket.on('system_metrics', function(data) {
                     document.getElementById('cpu').textContent = data.cpu.toFixed(1);
                     document.getElementById('memory').textContent = data.memory.toFixed(1);
+                    
+                    if (data.status === 'ready') {
+                        statusSpan.textContent = "Ready";
+                        statusSpan.className = "";
+                    } else {
+                        statusSpan.textContent = "Error - retrying...";
+                        statusSpan.className = "error";
+                    }
                 });
                 
                 function addMessage(role, text) {
@@ -186,18 +209,16 @@ def home():
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({prompt: prompt})
-                        }).then(response => {
-                            if (!response.ok) {
-                                statusSpan.textContent = "Status: Error sending message";
-                                statusSpan.style.color = "red";
-                            }
+                        }).catch(e => {
+                            statusSpan.textContent = "Network error";
+                            statusSpan.className = "error";
                         });
                         
                         document.getElementById('prompt').value = '';
                     }
                 }
                 
-                // Отправка по Enter (без Shift)
+                // Отправка по Enter
                 document.getElementById('prompt').addEventListener('keypress', function(e) {
                     if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
@@ -212,9 +233,9 @@ def home():
 @app.route('/api/chat', methods=['POST'])
 def chat_api():
     data = request.get_json()
-    if llm.send_prompt(data['prompt']):
+    if llm.generate(data['prompt']):
         return jsonify({'status': 'success'})
-    return jsonify({'status': 'error'}), 500
+    return jsonify({'status': 'error', 'message': 'LLM not ready'}), 503
 
 def shutdown_handler(signum, frame):
     print("\nЗавершение работы...")
@@ -227,4 +248,7 @@ signal.signal(signal.SIGTERM, shutdown_handler)
 
 if __name__ == '__main__':
     print("Сервер запущен: http://localhost:8000")
+    print("Убедитесь что:")
+    print("1. llama.cpp скомпилирован как './main'")
+    print("2. Модель находится в './models/llama-2-7b.Q4_K_M.gguf'")
     socketio.run(app, host='0.0.0.0', port=8000)

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LLM Monitoring</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { display: flex; flex-wrap: wrap; gap: 20px; }
+        .panel { flex: 1; min-width: 300px; border: 1px solid #ddd; padding: 15px; border-radius: 5px; }
+        #metrics-chart { height: 300px; }
+        #conversation { height: 400px; overflow-y: auto; }
+        .message { margin-bottom: 10px; padding: 8px; border-radius: 4px; }
+        .user { background-color: #e3f2fd; }
+        .llm { background-color: #f1f8e9; }
+        #generation-controls { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>LLM Monitoring Dashboard</h1>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>System Metrics</h2>
+            <canvas id="metrics-chart"></canvas>
+            <div id="current-metrics">
+                <p>CPU: <span id="cpu-value">0</span>%</p>
+                <p>Memory: <span id="mem-value">0</span>%</p>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>Conversation</h2>
+            <div id="conversation"></div>
+            <div id="generation-controls">
+                <textarea id="prompt-input" rows="3" style="width: 100%;"></textarea>
+                <button onclick="generate()">Generate</button>
+                <button onclick="stopGeneration()">Stop</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const conversationDiv = document.getElementById('conversation');
+        const cpuValue = document.getElementById('cpu-value');
+        const memValue = document.getElementById('mem-value');
+        
+        // Инициализация графиков
+        const ctx = document.getElementById('metrics-chart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'CPU Usage (%)',
+                        data: [],
+                        borderColor: 'rgb(255, 99, 132)',
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Memory Usage (%)',
+                        data: [],
+                        borderColor: 'rgb(54, 162, 235)',
+                        tension: 0.1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { title: { display: true, text: 'Time' } },
+                    y: { min: 0, max: 100 }
+                }
+            }
+        });
+        
+        // Обработчики WebSocket
+        socket.on('metrics_update', data => {
+            cpuValue.textContent = data.cpu.toFixed(1);
+            memValue.textContent = data.memory.toFixed(1);
+            
+            // Обновление графика
+            if (chart.data.labels.length > 30) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+                chart.data.datasets[1].data.shift();
+            }
+            
+            chart.data.labels.push(data.timestamp);
+            chart.data.datasets[0].data.push(data.cpu);
+            chart.data.datasets[1].data.push(data.memory);
+            chart.update();
+        });
+        
+        socket.on('conversation_update', data => {
+            const userMsg = document.createElement('div');
+            userMsg.className = 'message user';
+            userMsg.innerHTML = `<strong>[${data.timestamp}] User:</strong><p>${data.prompt}</p>`;
+            
+            const llmMsg = document.createElement('div');
+            llmMsg.className = 'message llm';
+            llmMsg.innerHTML = `<strong>[${data.timestamp}] LLM:</strong><p>${data.response}</p>`;
+            
+            conversationDiv.appendChild(userMsg);
+            conversationDiv.appendChild(llmMsg);
+            conversationDiv.scrollTop = conversationDiv.scrollHeight;
+        });
+        
+        socket.on('partial_response', data => {
+            const lastLlmMsg = conversationDiv.querySelector('.llm:last-child');
+            if (lastLlmMsg) {
+                lastLlmMsg.querySelector('p').textContent += data.text + ' ';
+                conversationDiv.scrollTop = conversationDiv.scrollHeight;
+            }
+        });
+        
+        socket.on('initial_data', data => {
+            // Загрузка начальных данных
+            data.conversation.forEach(msg => {
+                const event = { 
+                    timestamp: msg.timestamp,
+                    prompt: msg.prompt,
+                    response: msg.response
+                };
+                socket.emit('conversation_update', event);
+            });
+        });
+        
+        // Функции управления
+        function generate() {
+            const prompt = document.getElementById('prompt-input').value;
+            if (prompt.trim()) {
+                fetch('/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt })
+                });
+                document.getElementById('prompt-input').value = '';
+            }
+        }
+        
+        function stopGeneration() {
+            fetch('/api/stop', { method: 'POST' });
+        }
+    </script>
+</body>
+</html>

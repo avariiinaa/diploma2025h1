@@ -27,13 +27,12 @@ class LLMEngine:
         
     def verify_files(self):
         """Проверка наличия необходимых файлов"""
-        print('./../llama.cpp/llama/bin/llama-cli'=='''{sys.argv[1]}''', '''{sys.argv[1]}''','./../llama.cpp/llama/bin/llama-cli')
-        if not os.path.exists('''{sys.argv[1]}'''):
-            print("ERROR: llama.cpp executable './main' not found!", file=sys.stderr)
+        if not os.path.exists(f'''./{sys.argv[1]}'''):
+            print("ERROR: llama.cpp executable './llama-cli' not found!", file=sys.stderr)
             sys.exit(1)
             
         if not os.path.exists('./models/Qwen3-0.6B-Q4_K_M.gguf'):
-            print("ERROR: Model file './models/llama-2-7b.Q4_K_M.gguf' not found!", file=sys.stderr)
+            print("ERROR: Model file not found!", file=sys.stderr)
             sys.exit(1)
             
         self.model_loaded = True
@@ -47,7 +46,7 @@ class LLMEngine:
             # Запускаем процесс с таймаутом
             process = subprocess.Popen(
                 [
-                    './../llama.cpp/llama/bin/llama-cli',
+                    f'''./{sys.argv[1]}''',
                     '-m', 'models/Qwen3-0.6B-Q4_K_M.gguf',
                     '-p', prompt,
                     '-n', '256',  # Максимальное количество токенов
@@ -232,8 +231,8 @@ def chat_api():
 if __name__ == '__main__':
     print("Starting server at http://localhost:8000")
     print("Make sure:")
-    print("1. llama.cpp is compiled as './main'")
-    print("2. Model file exists at './models/llama-2-7b.Q4_K_M.gguf'")
+    print("1. llama.cpp is compiled as './llama-cli'")
+    print("2. Model file exists at 'models/Qwen3-0.6B-Q4_K_M.gguf'")
     
     try:
         socketio.run(app, host='0.0.0.0', port=8000)

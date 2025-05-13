@@ -57,7 +57,7 @@ class LLMService:
             self.start_llm_process()
             time.sleep(1)  # Даем процессу время на запуск
         
-        self.llm_process.stdin.write(prompt + "\n")
+        self.llm_process.stdin.write(prompt + "/no_think")
         self.llm_process.stdin.flush()
         
         # Сохраняем в историю
@@ -127,4 +127,4 @@ def handle_connect():
 
 if __name__ == '__main__':
     llm_service.start_llm_process()  # Предварительный запуск
-    socketio.run(app, host='0.0.0.0', port=5000)
+    socketio.run(app, host='0.0.0.0', port=8000)
